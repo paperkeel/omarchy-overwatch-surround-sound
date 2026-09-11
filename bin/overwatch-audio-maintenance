@@ -49,15 +49,30 @@ pipewire_age() {
 	ps -o etimes= -p "$pipewire_pid" | tr -d ' '
 }
 
+wait_for_audio_graph() {
+	local sink="${HEADSET_SINK:-}"
+
+	for _ in {1..50}; do
+		if pactl info >/dev/null 2>&1; then
+			if [[ -z "$sink" ]] || pactl list sinks short | awk -v s="$sink" '$2 == s { found = 1 } END { exit !found }'; then
+				sleep 0.5
+				return 0
+			fi
+		fi
+		sleep 0.1
+	done
+}
+
 refresh_audio_graph() {
 	if ! systemctl --user stop overwatch-audio-session.service easyeffects.service; then
 		systemctl --user start easyeffects.service overwatch-audio-session.service || true
 		return 1
 	fi
-	if ! systemctl --user restart pipewire.service pipewire-pulse.service; then
+	if ! systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service; then
 		systemctl --user start easyeffects.service overwatch-audio-session.service || true
 		return 1
 	fi
+	wait_for_audio_graph || true
 	systemctl --user start easyeffects.service overwatch-audio-session.service
 	"$OBSERVER" pipeline "idle_audio_graph_refresh" "success" \
 		"The idle maintenance task refreshed the PipeWire audio graph." || true
